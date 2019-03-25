@@ -1,32 +1,33 @@
 <?php
+namespace Kewo\Alipay;
 /*
  *  Copyright (c) 2014 The CCP project authors. All Rights Reserved.
  *
  */
-namespace Kewo;
-require_once "lib/phpqrcode.php";
+namespace Kewo\Alipay;
 
-use Kewo\lib\WxPayApi;
-use Kewo\lib\WxPayException;
-use Kewo\lib\JsApiPay;
+use Kewo\Alipay\lib\AliPayException;
+use Kewo\Alipay\lib\AlipayTradeService;
+use Kewo\Alipay\lib\AlipayTradePagePayContentBuilder;
 
-class Wechat
+class Alipay
 {
     private $appid; //公众账号ID
-    private $mchid; //商户号
-    private $paykey; //支付key
-    private $appsecret;
+    private $paykey; //商户私钥
     private $app;
     private $enabeLog = true; //日志开关。可填值：true、
     private $Filename = "./wechatlog.txt"; //日志文件
     private $Handle;
     private $batch; //时间戳
     private $otherObj; //支付接口对象
-    private $signType = 'MD5'; //支付签名方式
+    private $signType = 'RSA2'; //支付签名方式
     private $proxyHost = '0.0.0.0'; //默认CURL_PROXY_HOST=0.0.0.0和CURL_PROXY_PORT=0，此时不开启代理（如有需要才设置）
     private $proxyPort = 0; 
-    private $sslCertPath; //证书路径,注意应该填写绝对路径（仅退款、撤销订单时需要，可登录商户平台下载，
-    private $sslKeyPath; 
+    private $charset = "UTF-8"; //编码格式
+    private $gatewayUrl = "https://openapi.alipay.com/gateway.do"; //支付宝网关
+    private $alipay_public_key; //支付宝公钥
+    private $notify_url; //异步通知地址
+    private $return_url; //同步跳转
 
     public function __construct($app='')
     {
@@ -41,155 +42,18 @@ class Wechat
      *
      * @param AppId 应用ID
      */
-    static function payInstance($appid,$mchid,$paykey,$app=1)
+    static function payInstance($appid,$paykey,$alipay_public_key,$notify_url,$return_url,$app='')
     {
-        $obj = new Wechat;
+        $obj = new Alipay;
         $obj->appid = $appid;
-        $obj->mchid = $mchid;
+        $obj->return_url = $return_url;
         $obj->paykey = $paykey;
+        $obj->notify_url = $notify_url;
+        $obj->alipay_public_key = $alipay_public_key;
         $obj->app = $app;
 
-        $obj->otherObj = new WxPayApi;
-
         return $obj;
     }
-       
-    /**
-     * 
-     * 创建二维码生成环境
-     * 
-     */
-    static function qrInstance()
-    {
-        $obj = new Wechat;
-        $obj->otherObj = new WxPayApi;
-
-        return $obj;
-    }
-      
-    /**
-     * 
-     * 创建js授权环境
-     * 
-     */
-    static function jsInstance($appid,$appsecret)
-    {
-        $obj = new Wechat;
-        $obj->appid = $appid;
-        $obj->appsecret = $appsecret;
-        $obj->otherObj = new JsApiPay;
-
-        return $obj;
-    }
-        
-    /**
-     * 创建回调环境
-     * 
-     * @param appid 公众账号ID
-     * @param mchid 商户号
-     *
-     * @param AppId 应用ID
-     */
-    static function notifyInstance($paykey,$app=1)
-    {
-        $obj = new Wechat;
-        $obj->paykey = $paykey;
-        $obj->app = $app;
-
-        $obj->otherObj = new WxPayApi;
-
-        return $obj;
-    }
-
-    /**
-     * 获取支付key
-     *
-     * @param 
-     */
-    public function getPayKey()
-    {
-        return $this->paykey;
-    }
-    
-    /**
-     * 获取签名方式
-     *
-     * @param 
-     */
-    public function getSignType()
-    {
-        return $this->signType;
-    }
-    
-    /**
-     * 设置签名方式
-     *
-     * @param string type
-     */
-    public function setSignType($type='MD5')
-    {
-        if($type =='MD5' || $type =='HMAC-SHA256'){
-            $this->signType = $type;
-        }
-    }
-
-    /**
-	 * 
-	 * APPID：绑定支付的APPID
-	 * 
-	 * MCHID：商户号
-	 * 
-	 */
-	public function GetAppId()
-	{
-		return $this->appid;
-    }
-    public function GetAppsecret()
-	{
-		return $this->appsecret;
-    }
-	public function GetMerchantId()
-	{
-		return $this->mchid;
-    }
-    
-    /**
-	 * TODO：这里设置代理机器，只有需要代理的时候才设置，不需要代理，请设置为0.0.0.0和0
-	 * 本例程通过curl使用HTTP POST方法，此处可修改代理服务器，
-	 * 默认CURL_PROXY_HOST=0.0.0.0和CURL_PROXY_PORT=0，此时不开启代理（如有需要才设置）
-	 * @var unknown_type
-	 */
-    public function setProxy($proxyHost="0.0.0.0", $proxyPort=0)
-	{
-		$this->proxyHost = "0.0.0.0";
-		$this->proxyPort = 0;
-	}
-	public function GetProxy(&$proxyHost, &$proxyPort)
-	{
-		$proxyHost = $this->proxyHost;
-		$proxyPort = $this->proxyPort;
-    }
-    
-    /**
-	 * TODO：设置商户证书路径
-	 * 证书路径,注意应该填写绝对路径（仅退款、撤销订单时需要，可登录商户平台下载，
-	 * API证书下载地址：https://pay.weixin.qq.com/index.php/account/api_cert，下载之前需要安装商户操作证书）
-	 * 注意:
-	 * 1.证书文件不能放在web服务器虚拟目录，应放在有访问权限控制的目录中，防止被他人下载；
-	 * 2.建议将证书文件名改为复杂且不容易猜测的文件名；
-	 * 3.商户服务器要做好病毒和木马防护工作，不被非法侵入者窃取证书文件。
-	 * @var path
-	 */
-    public function setSSLCertPath($sslCertPath, $sslKeyPath)
-	{
-		$this->sslCertPath = $sslCertPath;
-		$this->sslKeyPath = $sslKeyPath;
-	}
-	public function GetSSLCertPath(&$sslCertPath, &$sslKeyPath)
-	{
-		$sslCertPath = $this->sslCertPath;
-		$sslKeyPath = $this->sslKeyPath;
-	}
 
     /**
      * 主帐号鉴权
@@ -198,19 +62,16 @@ class Wechat
     {
         //检查应用id
         if ($this->app == "") {
-            throw new WxPayException('应用ID为空',1004);
+            throw new AliPayException('应用ID为空',1004);
         }
 
         switch ($type) {
             case '1':
                 if ($this->appid == "") {
-                    throw new WxPayException('appid为空',1002);
-                }
-                if ($this->mchid == "") {
-                    throw new WxPayException('商户id为空',1003);
+                    throw new AliPayException('appid为空',1002);
                 }
                 if ($this->paykey == "") {
-                    throw new WxPayException('商户key为空',1003);
+                    throw new AliPayException('商户key为空',1003);
                 }
                 break;
             
@@ -219,6 +80,17 @@ class Wechat
                 break;
         }
     }
+    	
+	/**
+     * 
+     * 传值验证
+     */
+    public static function verifyData($value,$field,$err,$msg){
+        
+        if(!isset($value[$field])) {
+            throw new AliPayException($msg,$err);
+        }
+	}
 
     /**
 	 * 
@@ -234,7 +106,7 @@ class Wechat
      * 附加数据	attach	否
      * 商户订单号	out_trade_no	是
      * 标价币种	fee_type	否
-     * 标价金额	total_fee	是	
+     * 标价金额	total_fee	是 元	
      * 终端IP	spbill_create_ip	是
      * 交易起始时间	time_start	否
      * 交易结束时间	time_expire	否
@@ -248,33 +120,74 @@ class Wechat
      * 
 	 * @param array $input 参数
 	 */
-	public function GetPayUrl($input)
+	public function GetPay($input,$mobile=false)
 	{
         //账号验证
         $this->accAuth();
         //商品描述 验证
-        $this->otherObj->verifyData($input,'body',1005,'商品描述为空');
+        $this->verifyData($input,'body',1005,'商品描述为空');
         //商品价格 验证
-        $this->otherObj->verifyData($input,'total_fee',1005,'商品价格为空');
+        $this->verifyData($input,'total_fee',1005,'商品价格为空');
+        //订单编号 验证
+        $this->verifyData($input,'out_trade_no',1005,'商品订单号为空');
 
-        //接口统一提供
-        $input['appid'] = $this->appid;
-        $input['mch_id'] = $this->mchid;
-        $input['device_info'] = $this->app;
+        //接口配置
+        $config['app_id'] = $this->appid;
+        $config['merchant_private_key'] = $this->paykey;
+        $config['gatewayUrl'] = $this->gatewayUrl;
+        $config['alipay_public_key'] = $this->alipay_public_key;
+        $config['charset'] = $this->charset;
+        $config['sign_type'] = $this->signType;
+        $config['notify_url'] = $this->notify_url;
+        $config['return_url'] = $this->return_url;
 
         //获取值
         try{
-            $result = $this->otherObj->unifiedOrder($input,$this);
-            if($result['return_code'] != 'SUCCESS'){
-                throw new WxPayException('统一下单失败;'.$result['return_msg'],5707);
-            }
+            $payRequestBuilder = new AlipayTradePagePayContentBuilder();
+            $payRequestBuilder->setBody($input['body']);
+            isset($input['subject']) && $payRequestBuilder->setSubject($input['subject']);
+            isset($input['passbackParams']) && $payRequestBuilder->setSubject($input['passbackParams']);
+            $payRequestBuilder->setTotalAmount($input['total_fee']);
+            $payRequestBuilder->setOutTradeNo($input['out_trade_no']);
+
+            $aop = new AlipayTradeService($config);
+            $result = $aop->pagePay($payRequestBuilder,$config['return_url'],$config['notify_url'],$mobile);
             return $result;
         } catch(Exception $e) {
-            throw new WxPayException('统一下单失败2',5707);
+            throw new AliPayException('统一下单失败2',5707);
         }
         
 		return false;
     }
+
+        	
+	/**
+     * 
+     * 异步通知验证
+     * 
+     */
+    public function notify($arr){
+        
+         //接口配置
+         $config['app_id'] = $this->appid;
+         $config['merchant_private_key'] = $this->paykey;
+         $config['gatewayUrl'] = $this->gatewayUrl;
+         $config['alipay_public_key'] = $this->alipay_public_key;
+         $config['charset'] = $this->charset;
+         $config['sign_type'] = $this->signType;
+         $config['notify_url'] = $this->notify_url;
+         $config['return_url'] = $this->return_url;
+ 
+         //获取值
+         try{
+             $aop = new AlipayTradeService($config);
+             $result = $aop->check($arr);
+             return $result;
+         } catch(Exception $e) {
+             throw new AliPayException('验签失败',5707);
+         }
+         return false;
+	}
     
     
     /**
@@ -301,26 +214,6 @@ class Wechat
         $result = $jsApiPay->GetJsApiParameters($value ,$key);
         return $result;
     }
-    
-            
-    /**
-	 * 
-     * 异步通知
-	 * @param 
-	 */
-	public function notify($callback)
-	{
-        if ($this->paykey == "") {
-            throw new WxPayException('商户key为空',1003);
-        }
-        $key = $this->paykey;
-        $result = $this->otherObj->notify($key);
-
-        return call_user_func($callback, $result);
-	}
-    
-    
-    
     /**
 	 * 
      * 用户授权获取 openid unionid

@@ -1,10 +1,13 @@
 <?php
-use Kewo\wechat;
+use Kewo\Alipay\Alipay;
 
-        $appID = config('common.wepay.appID');
-        $mchID = config('common.wepay.mchId');
-        $key = config('common.wepay.key');
-        $payInstance = wechat::payInstance($appID,$mchID,$key);
+        $app_id = config('common.alipay.app_id');
+        $merchant_private_key = config('common.alipay.merchant_private_key');
+        $notify_url = config('common.alipay.notify_url');
+        $return_url = config('common.alipay.return_url');
+        $request->has('data.redirect_url')  && $return_url = $input['data']['redirect_url'];
+        $alipay_public_key = config('common.alipay.alipay_public_key');
+        $payInstance = Alipay::payInstance($app_id,$merchant_private_key,$alipay_public_key,$notify_url,$return_url,$app);
         /** 生成直接支付url，支付url有效期为2小时,模式二
         * 公众账号ID	appid  是
         * 商户号	mch_id  是
@@ -37,16 +40,13 @@ use Kewo\wechat;
         $input['out_trade_no'] = 123;
         //业务选择传入数值 detail total_fee
         $input['detail'] = 123;
-        $input['attach'] = 123;
-        $input['fee_type'] = 'CNY';
         $input['spbill_create_ip'] = '192.168.1.1';
 
         //NATIVE 支付
-        $input['trade_type'] = 'NATIVE';
-        $result = $payInstance->GetPayUrl($input);
-
+        $pc = $type=='PC'?true:false;
+        $pay = $payInstance->GetPay($paydata,$pc);
         //
-        if($result&&isset($result['result_code'])&&$result['result_code']=='SUCCESS'){
+        if($pay){
             //成功
         } else {
             //返回获取失败，重新发起请求
@@ -64,50 +64,18 @@ use Kewo\wechat;
      */
     public function notify()
     {
-        $key = config('common.wepay.key');
-        $notifyInstance = kewoWechat::notifyInstance($key);
+        $arr=$_POST;
         
-        //异步通知
-        $notifyInstance->notify(array($this, 'NotifyCallBack'));
-    }
+        $app_id = config('common.alipay.app_id');
+        $merchant_private_key = config('common.alipay.merchant_private_key');
+        $notify_url = config('common.alipay.notify_url');
+        $return_url = config('common.alipay.return_url');
+        $alipay_public_key = config('common.alipay.alipay_public_key');
+        $payInstance = Alipay::payInstance($app_id,$merchant_private_key,$alipay_public_key,$notify_url,$return_url,1);
+        $result = $payInstance->notify($arr);
 
-    //回调处理函数 当所有验证成功后回调
-    public function NotifyCallBack($result)
-	{
-        //异步通知有返回值
-        if($result&&$result['return_code']=='SUCCESS'&&$result['result_code']=='SUCCESS') {
-            //创建订单
-            $prepay = Prepay::where('code',$result['out_trade_no'])->first();
-            $order = Order::firstOrCreate(['number'=>$result['out_trade_no']]); 
-            if($order){
-                $orderData['paid_at'] = time();
-                $orderData['status'] = 1;
-                
-                $orderData['trade_type'] = $result['trade_type'];
-                $orderData['tranid'] = $result['transaction_id'];
-                $orderData['app_number'] = $result['attach'];
-                $orderData['fee_type'] = $result['fee_type'];
-                $orderData['real_fee'] = $result['total_fee'];
-                $orderData['usernum'] = $result['openid'];
-
-                $order->update($orderData);
-
-                //异步通知子应用订单状态，加入通知队列
-                if($prepay){
-                    $orderData['app'] = $prepay['app'];
-                    $orderData['body'] = $prepay['body'];
-                    $orderData['created_at'] = $prepay['created_at'];
-                    $orderData['total_fee'] = $prepay['total_fee'];
-                    $orderData['product_id'] = $prepay['product_id'];
-                    $orderData['detail'] = $prepay['detail'];
-
-                    $notify = Notify::firstOrCreate(['number'=>$result['out_trade_no']]); 
-                    $notify -> update(['notify_url'=>$prepay['notify_url'],'redirect_url'=>$prepay['redirect_url']]);
-                }
-                $order->update($orderData);
-                $prepay && $prepay->delete();
-            }
-        }
+        if($result) {//验证成功
+    
     }
 
 ?> 
