@@ -15,7 +15,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Kewo\\wechat\\": "src/"
+            "Kewo\\Alipay\\": "src/"
         },
         "files": ["src/alipay.php"]
     }
