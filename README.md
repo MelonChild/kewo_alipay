@@ -5,4 +5,4 @@
 
 使用composer 
 
-composer require kewo/aliay
+composer require kewo/alipay
